@@ -81,7 +81,10 @@ class Prediction(NamedTuple):
     def plot(self):
         plt.title('Prediction with RMS error')
         plt.plot(self.x, self.y_with_precision, 'go')
-        plt.errorbar(self.x, self.y_with_precision, self.precision, lw=2, capsize=5, capthick=2, color='g')
+        plt.errorbar(
+            self.x, self.y_with_precision, self.precision,
+            lw=2, capsize=5, capthick=2, color='g',
+        )
 
 
 class InvalidModel(Exception):
@@ -92,14 +95,18 @@ class LinearRegression:
     theta0: Decimal = Decimal('0')
     theta1: Decimal = Decimal('0')
     precision: Optional[Decimal] = None
-    learning_rate: Decimal = Decimal('0.01')
+    learning_rate: Decimal
     storage: str
     errors: List[Decimal]
 
-    def __init__(self, storage: str):
+    def __init__(self, storage: str, learning_rate: Decimal = Decimal('0.01')):
         """
         :param storage: file for coefficients
+        :param learning_rate: coefficient for training
         """
+        if not Decimal('0') < learning_rate < Decimal('1'):
+            raise InvalidModel('Learning rate should be in range (0, 1)')
+        self.learning_rate = learning_rate
         self.storage = storage
         if not os.path.isfile(self.storage):
             self._reset_file()
