@@ -17,7 +17,11 @@ def training(
         print(f'\033[91m-> Error: {ex}\033[0m')
         return
 
-    model = lr.LinearRegression(storage, learning_rate)
+    try:
+        model = lr.LinearRegression(storage, learning_rate)
+    except lr.InvalidModel as ex:
+        print(f'\033[91m-> Error: {ex}\033[0m')
+        return
 
     model.train(data, iter)
     print(f'\033[96m-> Coefficients are dumped to {model.storage}\033[0m')
