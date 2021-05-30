@@ -1,11 +1,12 @@
-from typing import List, NamedTuple, Optional
-
+from typing import Callable, List, NamedTuple, Optional
 import csv
 from decimal import Decimal, InvalidOperation
 import json
 import math
 import matplotlib.pyplot as plt
 import os.path
+
+from . import regression as base_reg
 
 
 class InvalidData(Exception):
@@ -87,32 +88,63 @@ class Prediction(NamedTuple):
         )
 
 
+class Linear(base_reg.Regression):
+    def loss(self, x: Decimal, y: Decimal) -> Decimal:
+        """
+        loss function
+        :param x: input
+        :param y: output prediction
+        :return: error for self._func(x) on given prediction
+        """
+        return (self.func(x) - y)**2 / 2
+
+    @property
+    def _regressors(self) -> List[Callable[[Decimal], Decimal]]:
+        """
+        :return: list of regressor's functions
+        """
+        return [lambda x: 1, lambda x: x]
+
+    def _gradient(self, x: Decimal, y: Decimal) -> List[Decimal]:
+        """
+        gradient vector for self._loss() in (x,y)
+        """
+        return [(self.func(x) - y) * reg(x) for reg in self._regressors]
+
+    def rescale_thetas(self, norm_coef: Decimal, left_x: Decimal):
+        self._thetas[1] = self._thetas[1] * norm_coef
+        self._thetas[0] = self._thetas[0] - self._thetas[1] * left_x
+
+
 class InvalidModel(Exception):
     pass
 
 
-class LinearRegression:
-    theta0: Decimal = Decimal('0')
-    theta1: Decimal = Decimal('0')
+class Manager:
+    model: Linear
     precision: Optional[Decimal] = None
-    learning_rate: Decimal
     storage: str
     errors: List[Decimal]
 
-    def __init__(self, storage: str, learning_rate: Decimal = Decimal('0.01')):
+    def __init__(self, storage: str, learning_rate: Optional[Decimal] = None):
         """
         :param storage: file for coefficients
         :param learning_rate: coefficient for training
         """
-        if not Decimal('0') < learning_rate < Decimal('1'):
-            raise InvalidModel('Learning rate should be in range (0, 1)')
-        self.learning_rate = learning_rate
+        try:
+            self.model = Linear(learning_rate)
+        except base_reg.InvalidRegression as ex:
+            raise InvalidModel(str(ex))
         self.storage = storage
         if not os.path.isfile(self.storage):
             self._reset_file()
         self.errors = []
 
     def load(self):
+        """
+        load coefficients from file
+        :return:
+        """
         coeffs = dict()
         with open(self.storage, 'r') as storage:
             line = storage.readline()
@@ -120,16 +152,17 @@ class LinearRegression:
             coeffs = json.loads(line)
         except json.decoder.JSONDecodeError:
             self._reset_file()
-        if 'theta0' not in coeffs or 'theta1' not in coeffs:
-            raise InvalidModel('Coefficients aren`t set, you should train your model')
+        if 'coefficients' not in coeffs:
+            raise InvalidModel(
+                'Coefficients aren`t set, you should train your model'
+            )
 
         try:
-            self.theta0 = Decimal(coeffs['theta0'])
-            self.theta1 = Decimal(coeffs['theta1'])
+            self.model.set_thetas([Decimal(x) for x in coeffs['coefficients']])
             if 'precision' in coeffs:
                 self.precision = Decimal(coeffs['precision'])
-        except InvalidOperation:
-            raise InvalidData('Coefficients aren`t numbers')
+        except (InvalidOperation, base_reg.InvalidRegression):
+            raise InvalidData('Coefficients aren`t valid')
 
     def predict(self, x_value: Decimal) -> Prediction:
         """
@@ -138,7 +171,7 @@ class LinearRegression:
                 precision
         """
         x_prec = -x_value.as_tuple().exponent
-        row_result = self._linear(x_value)
+        row_result = self.model.func(x_value)
         y_prec = self._get_round_factor()
         return Prediction(
             x=x_value,
@@ -162,7 +195,10 @@ class LinearRegression:
         plt.ylabel(data.y_alias)
         plt.plot(
             data.x_boarders,
-            [self._linear(data.x_boarders[0]), self._linear(data.x_boarders[1])],
+            [
+                self.model.func(data.x_boarders[0]),
+                self.model.func(data.x_boarders[1]),
+            ],
             color='k',
         )
 
@@ -174,22 +210,17 @@ class LinearRegression:
         """
         xs = data.normalize_xs()
         for i in range(iterations):
-            self._one_round(xs, data.points_y)
-            self.errors.append(self._loss_function(xs, data.points_y))
+            self.model.one_round(xs, data.points_y)
+            errors = [
+                self.model.loss(x, y) for x, y in zip(xs, data.points_y)
+            ]
+            self.errors.append(Decimal(math.sqrt(sum(errors) / len(xs))))
 
-        self.theta1 *= data.x_norm_coeff
-        self.theta0 -= self.theta1 * data.x_boarders[0]
+        self.model.rescale_thetas(data.x_norm_coeff, data.x_boarders[0])
         if not self.errors:
             raise InvalidModel('Too few training iterations')
         self.precision = self.errors[-1]
         self._dump()
-
-    def _linear(self, x: Decimal) -> Decimal:
-        """
-        :param x: x value
-        :return: row prediction result (without precision)
-        """
-        return self.theta0 + self.theta1 * x
 
     def _get_round_factor(self) -> Optional[int]:
         if not self.precision:
@@ -200,8 +231,7 @@ class LinearRegression:
     def _dump(self):
         f = open(self.storage, 'w')
         coefficients = {
-            'theta0': str(self.theta0),
-            'theta1': str(self.theta1),
+            'coefficients': [str(x) for x in self.model.thetas],
             'precision': str(self.precision),
         }
         f.write(json.dumps(coefficients))
@@ -210,26 +240,3 @@ class LinearRegression:
         with open(self.storage, 'w') as storage:
             storage.write('{}')
         print(f'-> Reset file "{self.storage}"')
-
-    def _one_round(self, xs: List[Decimal], ys: List[Decimal]):
-        """
-        :param xs: array of X for training
-        :param ys: array of Y for training
-        """
-        x_error = sum(self._linear(x) - y for x, y in zip(xs, ys)) / len(xs)
-        theta0_tmp = self.theta0 - self.learning_rate * x_error
-
-        y_error = sum((self._linear(x) - y) * x for x, y in zip(xs, ys)) / len(xs)
-        theta1_tmp = self.theta1 - self.learning_rate * y_error
-
-        self.theta0 = theta0_tmp
-        self.theta1 = theta1_tmp
-
-    def _loss_function(self, xs: List[Decimal], ys: List[Decimal]) -> Decimal:
-        """
-        :param xs: array of X for training
-        :param ys: array of Y for training
-        :return: Root Mean Squared Error for calculated coefficients
-        """
-        errors = [(self._linear(x) - y)**2 for x, y in zip(xs, ys)]
-        return Decimal(math.sqrt(sum(errors) / len(xs)))

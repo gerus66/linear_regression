@@ -5,11 +5,11 @@ import decimal
 import matplotlib.pyplot as plt
 import textwrap
 
-import linear_regression as lr
+from src import linear_regression as lr
 
 
 def predict(storage: str, datafile: str, value: decimal.Decimal):
-    model = lr.LinearRegression(storage)
+    model = lr.Manager(storage)
     try:
         model.load()
     except lr.InvalidModel as ex:

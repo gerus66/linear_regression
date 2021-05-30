@@ -5,7 +5,7 @@ import decimal
 import matplotlib.pyplot as plt
 import textwrap
 
-import linear_regression as lr
+from src import linear_regression as lr
 
 
 def training(
@@ -18,7 +18,7 @@ def training(
         return
 
     try:
-        model = lr.LinearRegression(storage, learning_rate)
+        model = lr.Manager(storage, learning_rate)
     except lr.InvalidModel as ex:
         print(f'\033[91m-> Error: {ex}\033[0m')
         return
@@ -50,7 +50,7 @@ if __name__ == '__main__':
         '''),
         formatter_class=CustomFormatter,
     )
-    parser.add_argument('-d', metavar='datafile', type=str, default='data.csv',
+    parser.add_argument('-d', metavar='datafile', type=str, default='data/data.csv',
                         help='file with data for training')
     parser.add_argument('-i', metavar='iterations', type=int, default=10000,
                         help='number of training iterations')
