@@ -5,7 +5,7 @@ import decimal
 import matplotlib.pyplot as plt
 import textwrap
 
-from src import linear_regression as lr
+from models import linear_regression as lr
 
 
 def training(
